@@ -11,6 +11,73 @@ const shuffleArray = (array) => {
   return shuffled;
 };
 
+// Funktion für Fuzzy-Matching - prüft ob der eingegebene Text dem Spielernamen ähnlich genug ist
+// Toleriert bis zu 2 Rechtschreibfehler
+const fuzzyMatch = (input, playerName, maxErrors = 2) => {
+  // Normalisiere beide Strings (lowercase, entferne Leerzeichen am Anfang/Ende)
+  const normalizedInput = input.trim().toLowerCase();
+  const normalizedName = playerName.toLowerCase();
+  
+  // Wenn exakt gleich, return true
+  if (normalizedInput === normalizedName) return true;
+  
+  // Extrahiere Nachnamen (letztes Wort)
+  const nameParts = normalizedName.split(' ');
+  const lastName = nameParts[nameParts.length - 1];
+  
+  // Prüfe ob Input genau dem Nachnamen entspricht
+  if (normalizedInput === lastName) return true;
+  
+  // Prüfe ob Input im vollen Namen enthalten ist (für Teilstrings)
+  if (normalizedName.includes(normalizedInput) || normalizedInput.includes(lastName)) {
+    return true;
+  }
+  
+  // Levenshtein-Distanz für Nachnamen
+  const levenshteinDistance = (str1, str2) => {
+    const matrix = [];
+    const len1 = str1.length;
+    const len2 = str2.length;
+    
+    if (len1 === 0) return len2;
+    if (len2 === 0) return len1;
+    
+    for (let i = 0; i <= len2; i++) {
+      matrix[i] = [i];
+    }
+    
+    for (let j = 0; j <= len1; j++) {
+      matrix[0][j] = j;
+    }
+    
+    for (let i = 1; i <= len2; i++) {
+      for (let j = 1; j <= len1; j++) {
+        if (str2.charAt(i - 1) === str1.charAt(j - 1)) {
+          matrix[i][j] = matrix[i - 1][j - 1];
+        } else {
+          matrix[i][j] = Math.min(
+            matrix[i - 1][j - 1] + 1,
+            matrix[i][j - 1] + 1,
+            matrix[i - 1][j] + 1
+          );
+        }
+      }
+    }
+    
+    return matrix[len2][len1];
+  };
+  
+  // Prüfe Distanz zum vollen Namen
+  const fullNameDistance = levenshteinDistance(normalizedInput, normalizedName);
+  if (fullNameDistance <= maxErrors) return true;
+  
+  // Prüfe Distanz zum Nachnamen
+  const lastNameDistance = levenshteinDistance(normalizedInput, lastName);
+  if (lastNameDistance <= maxErrors) return true;
+  
+  return false;
+};
+
 // Mapping von Club-Namen zu Logo-URLs (verwendet einen zuverlässigeren Logo-Service)
 const getClubLogo = (clubName) => {
   // Verwende einen einfacheren Ansatz mit einem zuverlässigen Logo-Service
@@ -1475,11 +1542,13 @@ export default function FootballQuiz() {
     return shuffleArray(PLAYERS_DATA);
   }, []);
   
+  const [mode, setMode] = useState(null); // null = Auswahl, 'training' = Training, 'competition' = Wettkampf
   const [currentLevel, setCurrentLevel] = useState(0);
   const [streak, setStreak] = useState(0); // Wie viele richtige Antworten in Folge
   const [gameState, setGameState] = useState('playing'); // 'playing', 'finished'
   const [selectedAnswer, setSelectedAnswer] = useState(null);
   const [showStreakReset, setShowStreakReset] = useState(false);
+  const [inputValue, setInputValue] = useState(''); // Für Wettkampf-Modus
 
   const currentPlayer = shuffledPlayers[currentLevel];
   
@@ -1506,14 +1575,14 @@ export default function FootballQuiz() {
       }
       
       // Nächste Frage
-      setTimeout(() => {
+    setTimeout(() => {
         if (currentLevel < shuffledPlayers.length - 1) {
-          setCurrentLevel(currentLevel + 1);
-          setSelectedAnswer(null);
-        } else {
-          setGameState('finished');
-        }
-      }, 1500);
+        setCurrentLevel(currentLevel + 1);
+        setSelectedAnswer(null);
+      } else {
+        setGameState('finished');
+      }
+    }, 1500);
     } else {
       // Falsche Antwort - Streak zurücksetzen
       setShowStreakReset(true);
@@ -1530,6 +1599,102 @@ export default function FootballQuiz() {
     }
   };
 
+  const handleCompetitionSubmit = (e) => {
+    e.preventDefault();
+    if (!inputValue.trim() || selectedAnswer) return;
+    
+    const isCorrect = fuzzyMatch(inputValue.trim(), currentPlayer.name);
+    setSelectedAnswer(inputValue.trim());
+    
+    if (isCorrect) {
+      // Richtige Antwort - Streak erhöhen
+      const newStreak = streak + 1;
+      setStreak(newStreak);
+      
+      // Bei 5 richtigen Antworten gewonnen!
+      if (newStreak >= 5) {
+        setTimeout(() => {
+          setGameState('finished');
+        }, 1500);
+        return;
+      }
+      
+      // Nächste Frage
+      setTimeout(() => {
+        if (currentLevel < shuffledPlayers.length - 1) {
+          setCurrentLevel(currentLevel + 1);
+          setSelectedAnswer(null);
+          setInputValue('');
+        } else {
+          setGameState('finished');
+        }
+      }, 1500);
+    } else {
+      // Falsche Antwort - Streak zurücksetzen
+      setShowStreakReset(true);
+      setTimeout(() => {
+        setStreak(0);
+        setShowStreakReset(false);
+        if (currentLevel < shuffledPlayers.length - 1) {
+          setCurrentLevel(currentLevel + 1);
+          setSelectedAnswer(null);
+          setInputValue('');
+        } else {
+          setGameState('finished');
+        }
+      }, 2000);
+    }
+  };
+
+  // Modus-Auswahlbildschirm
+  if (mode === null) {
+  return (
+    <div className="min-h-screen bg-slate-900 text-white flex flex-col items-center justify-center p-4 font-sans">
+        <div className="mb-12 text-center">
+          <h1 className="text-2xl md:text-3xl font-bold text-white tracking-wider mb-2">
+            WER IST DER SPIELER?
+      </h1>
+          <div className="flex items-center justify-center gap-2 mt-3">
+            <div className="h-px w-12 bg-white/30"></div>
+            <div className="h-px w-24 bg-white/50"></div>
+            <div className="h-px w-12 bg-white/30"></div>
+          </div>
+        </div>
+
+        <div className="w-full max-w-md space-y-4">
+          <motion.button
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            whileHover={{ scale: 1.02 }}
+            whileTap={{ scale: 0.98 }}
+            onClick={() => setMode('training')}
+            className="w-full bg-gradient-to-r from-green-500 to-blue-500 p-6 rounded-2xl font-bold text-lg shadow-xl hover:shadow-2xl transition-shadow"
+          >
+            🎯 Training
+            <p className="text-sm font-normal mt-2 opacity-90">
+              Multiple Choice - Wähle aus 4 Optionen
+            </p>
+          </motion.button>
+
+          <motion.button
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.1 }}
+            whileHover={{ scale: 1.02 }}
+            whileTap={{ scale: 0.98 }}
+            onClick={() => setMode('competition')}
+            className="w-full bg-gradient-to-r from-purple-500 to-pink-500 p-6 rounded-2xl font-bold text-lg shadow-xl hover:shadow-2xl transition-shadow"
+          >
+            ⚡ Wettkampf
+            <p className="text-sm font-normal mt-2 opacity-90">
+              Tippe den Namen ein - bis zu 2 Rechtschreibfehler erlaubt
+            </p>
+          </motion.button>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-screen bg-slate-900 text-white flex flex-col items-center justify-center p-4 font-sans">
       <div className="mb-8 text-center">
@@ -1542,6 +1707,12 @@ export default function FootballQuiz() {
           <div className="h-px w-12 bg-white/30"></div>
           <div className="h-px w-24 bg-white/50"></div>
           <div className="h-px w-12 bg-white/30"></div>
+        </div>
+        {/* Modus-Anzeige */}
+        <div className="mt-4">
+          <span className="text-xs uppercase tracking-widest text-slate-400">
+            {mode === 'training' ? '🎯 Training' : '⚡ Wettkampf'}
+          </span>
         </div>
       </div>
 
@@ -1565,9 +1736,10 @@ export default function FootballQuiz() {
             </div>
           </div>
 
-          {/* Antwort-Optionen */}
+          {/* Antwort-Optionen - Training Modus */}
+          {mode === 'training' && (
           <div className="grid grid-cols-1 gap-3">
-            {shuffledOptions.map((option) => {
+              {shuffledOptions.map((option) => {
               const isCorrect = option === currentPlayer.name;
               const isSelected = selectedAnswer === option;
               
@@ -1591,6 +1763,48 @@ export default function FootballQuiz() {
               );
             })}
           </div>
+          )}
+
+          {/* Input-Feld - Wettkampf Modus */}
+          {mode === 'competition' && (
+            <form onSubmit={handleCompetitionSubmit} className="w-full">
+              <div className="relative">
+                <input
+                  type="text"
+                  value={inputValue}
+                  onChange={(e) => setInputValue(e.target.value)}
+                  disabled={!!selectedAnswer}
+                  placeholder="Spielername eingeben..."
+                  className={`w-full p-4 rounded-xl border-2 text-lg font-semibold bg-slate-800 border-slate-700 text-white placeholder-slate-500 focus:outline-none focus:border-blue-500 transition-colors ${
+                    selectedAnswer 
+                      ? fuzzyMatch(selectedAnswer, currentPlayer.name)
+                        ? 'bg-green-500 border-green-400'
+                        : 'bg-red-500 border-red-400'
+                      : ''
+                  }`}
+                  autoFocus
+                />
+                {selectedAnswer && (
+                  <div className="mt-2 text-center">
+                    {fuzzyMatch(selectedAnswer, currentPlayer.name) ? (
+                      <p className="text-green-400 font-semibold">✓ Richtig! Es ist {currentPlayer.name}</p>
+                    ) : (
+                      <p className="text-red-400 font-semibold">✗ Falsch! Es ist {currentPlayer.name}</p>
+                    )}
+                  </div>
+                )}
+              </div>
+              {!selectedAnswer && (
+                <button
+                  type="submit"
+                  disabled={!inputValue.trim()}
+                  className="w-full mt-4 bg-gradient-to-r from-purple-500 to-pink-500 p-4 rounded-xl font-bold text-lg hover:shadow-lg transition-shadow disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  Bestätigen
+                </button>
+              )}
+            </form>
+          )}
 
           {/* Fußball-Streak-Anzeige */}
           <div className="mt-8 flex flex-col items-center gap-3">
@@ -1658,18 +1872,34 @@ export default function FootballQuiz() {
             </>
           ) : (
             <>
-              <h2 className="text-4xl font-bold mb-4">Spiel beendet! ⚽️</h2>
-              <p className="text-xl mb-6 text-slate-300 text-balance">
+          <h2 className="text-4xl font-bold mb-4">Spiel beendet! ⚽️</h2>
+          <p className="text-xl mb-6 text-slate-300 text-balance">
                 Du hattest einen Streak von {streak} richtigen Antworten.
-              </p>
+          </p>
             </>
           )}
+          <div className="flex gap-4">
+            <button 
+              onClick={() => {
+                setMode(null);
+                setCurrentLevel(0);
+                setStreak(0);
+                setGameState('playing');
+                setSelectedAnswer(null);
+                setInputValue('');
+                setShowStreakReset(false);
+              }}
+              className="bg-slate-700 px-6 py-3 rounded-full font-bold hover:shadow-lg transition-shadow"
+            >
+              Modus wählen
+            </button>
           <button 
             onClick={() => window.location.reload()}
             className="bg-gradient-to-r from-green-500 to-blue-500 px-8 py-3 rounded-full font-bold hover:shadow-lg transition-shadow"
           >
             Nochmal spielen
           </button>
+          </div>
         </motion.div>
       )}
     </div>
