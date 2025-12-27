@@ -33,6 +33,13 @@ const fuzzyMatch = (input, playerName, maxErrors = 2) => {
     return true;
   }
   
+  // Prüfe ob Input den Nachnamen enthält (auch wenn zusätzliche Wörter vorhanden sind)
+  // z.B. "de bruine" sollte mit "Kevin De Bruyne" matchen
+  const inputWords = normalizedInput.split(' ').filter(w => w.length > 0);
+  if (inputWords.some(word => word === lastName || lastName.includes(word) || word.includes(lastName))) {
+    return true;
+  }
+  
   // Levenshtein-Distanz für Nachnamen
   const levenshteinDistance = (str1, str2) => {
     const matrix = [];
@@ -74,6 +81,12 @@ const fuzzyMatch = (input, playerName, maxErrors = 2) => {
   // Prüfe Distanz zum Nachnamen
   const lastNameDistance = levenshteinDistance(normalizedInput, lastName);
   if (lastNameDistance <= maxErrors) return true;
+  
+  // Prüfe auch Distanz für jedes Wort im Input zum Nachnamen
+  for (const word of inputWords) {
+    const wordDistance = levenshteinDistance(word, lastName);
+    if (wordDistance <= maxErrors) return true;
+  }
   
   return false;
 };
@@ -332,8 +345,190 @@ const getClubLogo = (clubName) => {
   return logoMap[clubName];
 };
 
+// Hilfsfunktion um fehlende Spielerdaten abzuleiten
+const enrichPlayerData = (player) => {
+  const currentClub = player.clubs[player.clubs.length - 1];
+  
+  // Bestimme aktuelle Liga basierend auf Verein
+  const getLeague = (club) => {
+    const leagueMap = {
+      // Premier League
+      "Manchester United": "Premier League", "Manchester City": "Premier League", "Liverpool": "Premier League",
+      "Chelsea": "Premier League", "Arsenal": "Premier League", "Tottenham Hotspur": "Premier League",
+      "Leicester City": "Premier League", "West Ham United": "Premier League", "Everton": "Premier League",
+      "Newcastle United": "Premier League", "Brighton & Hove Albion": "Premier League", "Wolverhampton Wanderers": "Premier League",
+      "Aston Villa": "Premier League", "Leeds United": "Premier League", "Southampton": "Premier League",
+      "Burnley": "Premier League", "Watford": "Premier League", "Crystal Palace": "Premier League",
+      "Bournemouth": "Premier League", "Fulham": "Premier League", "Sheffield United": "Premier League",
+      "Nottingham Forest": "Premier League",
+      // La Liga
+      "Real Madrid": "La Liga", "FC Barcelona": "La Liga", "Atlético Madrid": "La Liga",
+      "Sevilla FC": "La Liga", "Valencia": "La Liga", "Villarreal": "La Liga",
+      "Real Sociedad": "La Liga", "Real Betis": "La Liga", "Athletic Bilbao": "La Liga",
+      "Getafe": "La Liga", "Mallorca": "La Liga", "Celta Vigo": "La Liga",
+      "Espanyol": "La Liga", "Girona": "La Liga",
+      // Bundesliga
+      "Bayern München": "Bundesliga", "Borussia Dortmund": "Bundesliga", "RB Leipzig": "Bundesliga",
+      "Bayer Leverkusen": "Bundesliga", "Borussia Mönchengladbach": "Bundesliga", "Eintracht Frankfurt": "Bundesliga",
+      "Wolfsburg": "Bundesliga", "Werder Bremen": "Bundesliga", "Hoffenheim": "Bundesliga",
+      "Freiburg": "Bundesliga", "Schalke 04": "Bundesliga", "VfB Stuttgart": "Bundesliga",
+      "VfL Bochum": "Bundesliga", "Hamburger SV": "Bundesliga",
+      // Serie A
+      "Juventus Turin": "Serie A", "AC Mailand": "Serie A", "Inter Mailand": "Serie A",
+      "AS Rom": "Serie A", "Napoli": "Serie A", "Lazio": "Serie A",
+      "Atalanta": "Serie A", "Fiorentina": "Serie A", "Sassuolo": "Serie A",
+      "Udinese": "Serie A",
+      // Ligue 1
+      "PSG": "Ligue 1", "Paris Saint-Germain": "Ligue 1", "Olympique Lyon": "Ligue 1",
+      "Marseille": "Ligue 1", "Monaco": "Ligue 1", "AS Monaco": "Ligue 1",
+      "Lille": "Ligue 1", "Nice": "Ligue 1", "Rennes": "Ligue 1",
+      // Andere
+      "Al-Nassr": "Saudi Pro League", "Al-Hilal": "Saudi Pro League", "Al-Ahli": "Saudi Pro League",
+      "Al-Ittihad": "Saudi Pro League", "Inter Miami": "MLS", "Los Angeles FC": "MLS",
+      "New York City FC": "MLS", "LA Galaxy": "MLS", "Toronto FC": "MLS"
+    };
+    return leagueMap[club] || "Unbekannt";
+  };
+
+  // Bestimme Nationalität basierend auf Name/Clubs
+  const getNationality = (name, clubs) => {
+    const nationalityMap = {
+      "Cristiano Ronaldo": "Portugal", "Lionel Messi": "Argentinien", "Toni Kroos": "Deutschland",
+      "Robert Lewandowski": "Polen", "Mohamed Salah": "Ägypten", "Kylian Mbappé": "Frankreich",
+      "Erling Haaland": "Norwegen", "Kevin De Bruyne": "Belgien", "Virgil van Dijk": "Niederlande",
+      "Manuel Neuer": "Deutschland", "Luka Modrić": "Kroatien", "Karim Benzema": "Frankreich",
+      "Neymar Jr": "Brasilien", "Sergio Ramos": "Spanien", "Thiago Silva": "Brasilien",
+      "Gareth Bale": "Wales", "Zlatan Ibrahimović": "Schweden", "Andrés Iniesta": "Spanien",
+      "Wayne Rooney": "England", "Andrea Pirlo": "Italien", "Xabi Alonso": "Spanien",
+      "Philipp Lahm": "Deutschland", "David Beckham": "England", "Ronaldinho": "Brasilien",
+      "Steven Gerrard": "England", "Frank Lampard": "England", "Arjen Robben": "Niederlande",
+      "Iker Casillas": "Spanien", "Gianluigi Buffon": "Italien", "Paul Pogba": "Frankreich",
+      "Jude Bellingham": "England", "Vinícius Júnior": "Brasilien", "Jamal Musiala": "Deutschland",
+      "Pedri": "Spanien", "Bukayo Saka": "England", "Federico Valverde": "Uruguay",
+      "Rafael Leão": "Portugal", "Alphonso Davies": "Kanada", "Achraf Hakimi": "Marokko",
+      "Frenkie de Jong": "Niederlande", "Marquinhos": "Brasilien", "Rodri": "Spanien",
+      "Bernardo Silva": "Portugal", "Son Heung-min": "Südkorea", "Sadio Mané": "Senegal",
+      "Raheem Sterling": "England", "Harry Kane": "England", "Lautaro Martínez": "Argentinien",
+      "Dušan Vlahović": "Serbien", "Victor Osimhen": "Nigeria", "Casemiro": "Brasilien",
+      "Antoine Griezmann": "Frankreich", "Marc-André ter Stegen": "Deutschland", "Joshua Kimmich": "Deutschland",
+      "Marco Verratti": "Italien", "Jan Oblak": "Slowenien", "Rúben Dias": "Portugal",
+      "João Cancelo": "Portugal", "Trent Alexander-Arnold": "England", "Andrew Robertson": "Schottland",
+      "İlkay Gündoğan": "Deutschland", "İvan Rakitić": "Kroatien", "Mats Hummels": "Deutschland",
+      "Marco Reus": "Deutschland", "Pierre-Emerick Aubameyang": "Gabun", "Romelu Lukaku": "Belgien",
+      "Eden Hazard": "Belgien", "Thibaut Courtois": "Belgien", "Alisson": "Brasilien",
+      "Ederson": "Brasilien", "Riyad Mahrez": "Algerien", "Gabriel Jesus": "Brasilien",
+      "Philippe Coutinho": "Brasilien", "Roberto Firmino": "Brasilien", "Fabinho": "Brasilien",
+      "Allan": "Brasilien", "Fred": "Brasilien", "Lucas Paquetá": "Brasilien",
+      "Richarlison": "Brasilien", "Raphinha": "Brasilien", "Antony": "Brasilien",
+      "Bruno Guimarães": "Brasilien", "João Félix": "Portugal", "Gonçalo Ramos": "Portugal",
+      "Rafael Silva": "Portugal", "Diogo Jota": "Portugal", "Rúben Neves": "Portugal",
+      "Matthijs de Ligt": "Niederlande", "Memphis Depay": "Niederlande", "Donny van de Beek": "Niederlande",
+      "Cody Gakpo": "Niederlande", "Xavi Simons": "Niederlande", "Wout Weghorst": "Niederlande",
+      "Luuk de Jong": "Niederlande", "Denzel Dumfries": "Niederlande", "Nathan Aké": "Niederlande",
+      "Daley Blind": "Niederlande", "Georginio Wijnaldum": "Niederlande", "Leroy Sané": "Deutschland",
+      "Serge Gnabry": "Deutschland", "Kingsley Coman": "Frankreich", "Leon Goretzka": "Deutschland",
+      "Mason Mount": "England", "Phil Foden": "England", "Marcus Rashford": "England",
+      "Jadon Sancho": "England", "Declan Rice": "England", "Kalvin Phillips": "England",
+      "Jack Grealish": "England", "Reece James": "England", "Ben Chilwell": "England",
+      "Luke Shaw": "England", "John Stones": "England", "Harry Maguire": "England",
+      "Kyle Walker": "England", "Kieran Trippier": "England", "Jordan Pickford": "England",
+      "Aaron Ramsdale": "England", "Nick Pope": "England", "Emiliano Martínez": "Argentinien",
+      "Ángel Di María": "Argentinien", "Paulo Dybala": "Argentinien", "Sergio Agüero": "Argentinien",
+      "Gonzalo Higuaín": "Argentinien", "Javier Mascherano": "Argentinien", "Javier Zanetti": "Argentinien",
+      "Esteban Cambiasso": "Argentinien", "Diego Milito": "Argentinien", "Carlos Tevez": "Argentinien",
+      "Fernando Torres": "Spanien", "David Villa": "Spanien", "Raúl": "Spanien",
+      "Fernando Morientes": "Spanien", "Carles Puyol": "Spanien", "Gerard Piqué": "Spanien",
+      "Xavi Hernández": "Spanien", "Sergio Busquets": "Spanien", "David Silva": "Spanien",
+      "Juan Mata": "Spanien", "Cesc Fàbregas": "Spanien", "Santi Cazorla": "Spanien",
+      "Fernando Hierro": "Spanien", "Luis Suárez": "Uruguay", "Edinson Cavani": "Uruguay",
+      "Diego Forlán": "Uruguay", "Darwin Núñez": "Uruguay", "Rodrygo": "Brasilien",
+      "Eduardo Camavinga": "Frankreich", "Aurélien Tchouaméni": "Frankreich", "Jules Koundé": "Frankreich",
+      "Dayot Upamecano": "Frankreich", "Ibrahima Konaté": "Frankreich", "William Saliba": "Frankreich",
+      "Christopher Nkunku": "Frankreich", "Ousmane Dembélé": "Frankreich", "Marcus Thuram": "Frankreich",
+      "Randal Kolo Muani": "Frankreich", "Mike Maignan": "Frankreich", "Hugo Lloris": "Frankreich",
+      "Theo Hernández": "Frankreich", "Lucas Hernández": "Frankreich", "Ferland Mendy": "Frankreich",
+      "Benjamin Pavard": "Frankreich", "Alessandro Bastoni": "Italien", "Giorgio Chiellini": "Italien",
+      "Leonardo Bonucci": "Italien", "Francesco Acerbi": "Italien", "Nicolò Barella": "Italien",
+      "Jorginho": "Italien", "Manuel Locatelli": "Italien", "Sandro Tonali": "Italien",
+      "Gianluigi Donnarumma": "Italien", "Ciro Immobile": "Italien", "Lorenzo Insigne": "Italien",
+      "Federico Chiesa": "Italien", "Domenico Berardi": "Italien", "Giacomo Raspadori": "Italien",
+      "Takefusa Kubo": "Japan", "Kaoru Mitoma": "Japan", "Ritsu Dōan": "Japan",
+      "Daichi Kamada": "Japan", "Hwang Hee-chan": "Südkorea", "Lee Kang-in": "Südkorea",
+      "Kim Min-jae": "Südkorea", "Mehdi Taremi": "Iran", "Sardar Azmoun": "Iran",
+      "Alireza Jahanbakhsh": "Iran", "Hakim Ziyech": "Marokko", "Youssef En-Nesyri": "Marokko",
+      "Sofiane Boufal": "Marokko", "Yassine Bounou": "Marokko", "Noussair Mazraoui": "Marokko",
+      "Ismaël Bennacer": "Algerien", "Islam Slimani": "Algerien", "Yacine Brahimi": "Algerien"
+    };
+    return nationalityMap[name] || "Unbekannt";
+  };
+
+  // Bestimme Alter basierend auf Name (vereinfacht, sollte aus API kommen)
+  const getAge = (name) => {
+    const ageMap = {
+      "Cristiano Ronaldo": 39, "Lionel Messi": 37, "Toni Kroos": 34, "Robert Lewandowski": 35,
+      "Mohamed Salah": 32, "Kylian Mbappé": 25, "Erling Haaland": 24, "Kevin De Bruyne": 33,
+      "Virgil van Dijk": 33, "Manuel Neuer": 38, "Luka Modrić": 39, "Karim Benzema": 36,
+      "Neymar Jr": 32, "Sergio Ramos": 38, "Thiago Silva": 40, "Gareth Bale": 35,
+      "Zlatan Ibrahimović": 43, "Andrés Iniesta": 40, "Wayne Rooney": 39, "Andrea Pirlo": 45,
+      "Xabi Alonso": 42, "Philipp Lahm": 40, "David Beckham": 49, "Ronaldinho": 44,
+      "Steven Gerrard": 44, "Frank Lampard": 46, "Arjen Robben": 40, "Iker Casillas": 43,
+      "Gianluigi Buffon": 46, "Paul Pogba": 31, "Jude Bellingham": 21, "Vinícius Júnior": 24,
+      "Jamal Musiala": 21, "Pedri": 22, "Bukayo Saka": 23, "Federico Valverde": 26,
+      "Rafael Leão": 25, "Alphonso Davies": 24, "Achraf Hakimi": 26, "Frenkie de Jong": 27,
+      "Marquinhos": 30, "Rodri": 28, "Bernardo Silva": 30, "Son Heung-min": 32,
+      "Sadio Mané": 32, "Raheem Sterling": 30, "Harry Kane": 31, "Lautaro Martínez": 27,
+      "Dušan Vlahović": 24, "Victor Osimhen": 25, "Casemiro": 32, "Antoine Griezmann": 33,
+      "Marc-André ter Stegen": 32, "Joshua Kimmich": 29, "Marco Verratti": 32, "Jan Oblak": 31,
+      "Rúben Dias": 27, "João Cancelo": 30, "Trent Alexander-Arnold": 26, "Andrew Robertson": 30,
+      "İlkay Gündoğan": 34, "İvan Rakitić": 36, "Mats Hummels": 35, "Marco Reus": 35,
+      "Pierre-Emerick Aubameyang": 35, "Romelu Lukaku": 31, "Eden Hazard": 33, "Thibaut Courtois": 32,
+      "Alisson": 32, "Ederson": 31, "Riyad Mahrez": 33, "Gabriel Jesus": 27,
+      "Philippe Coutinho": 32, "Roberto Firmino": 33, "Fabinho": 31, "Allan": 33,
+      "Fred": 31, "Lucas Paquetá": 27, "Richarlison": 27, "Raphinha": 27,
+      "Antony": 24, "Bruno Guimarães": 27, "João Félix": 25, "Gonçalo Ramos": 23,
+      "Rafael Silva": 31, "Diogo Jota": 28, "Rúben Neves": 27, "Matthijs de Ligt": 25,
+      "Memphis Depay": 30, "Donny van de Beek": 27, "Cody Gakpo": 25, "Xavi Simons": 21,
+      "Wout Weghorst": 32, "Luuk de Jong": 34, "Denzel Dumfries": 28, "Nathan Aké": 29,
+      "Daley Blind": 34, "Georginio Wijnaldum": 34, "Leroy Sané": 29, "Serge Gnabry": 29,
+      "Kingsley Coman": 28, "Leon Goretzka": 30, "Mason Mount": 26, "Phil Foden": 24,
+      "Marcus Rashford": 27, "Jadon Sancho": 24, "Declan Rice": 26, "Kalvin Phillips": 29,
+      "Jack Grealish": 29, "Reece James": 25, "Ben Chilwell": 28, "Luke Shaw": 29,
+      "John Stones": 30, "Harry Maguire": 31, "Kyle Walker": 34, "Kieran Trippier": 34,
+      "Jordan Pickford": 31, "Aaron Ramsdale": 26, "Nick Pope": 32, "Emiliano Martínez": 32,
+      "Ángel Di María": 36, "Paulo Dybala": 31, "Sergio Agüero": 36, "Gonzalo Higuaín": 36,
+      "Javier Mascherano": 40, "Javier Zanetti": 51, "Esteban Cambiasso": 44, "Diego Milito": 45,
+      "Carlos Tevez": 40, "Fernando Torres": 40, "David Villa": 42, "Raúl": 47,
+      "Fernando Morientes": 48, "Carles Puyol": 46, "Gerard Piqué": 37, "Xavi Hernández": 44,
+      "Sergio Busquets": 36, "David Silva": 38, "Juan Mata": 36, "Cesc Fàbregas": 37,
+      "Santi Cazorla": 39, "Fernando Hierro": 56, "Luis Suárez": 37, "Edinson Cavani": 37,
+      "Diego Forlán": 45, "Darwin Núñez": 25, "Rodrygo": 24, "Eduardo Camavinga": 22,
+      "Aurélien Tchouaméni": 24, "Jules Koundé": 26, "Dayot Upamecano": 26, "Ibrahima Konaté": 25,
+      "William Saliba": 24, "Christopher Nkunku": 27, "Ousmane Dembélé": 27, "Marcus Thuram": 27,
+      "Randal Kolo Muani": 26, "Mike Maignan": 29, "Hugo Lloris": 38, "Theo Hernández": 27,
+      "Lucas Hernández": 28, "Ferland Mendy": 29, "Benjamin Pavard": 28, "Alessandro Bastoni": 25,
+      "Giorgio Chiellini": 40, "Leonardo Bonucci": 37, "Francesco Acerbi": 36, "Nicolò Barella": 27,
+      "Jorginho": 33, "Manuel Locatelli": 27, "Sandro Tonali": 24, "Gianluigi Donnarumma": 25,
+      "Ciro Immobile": 34, "Lorenzo Insigne": 33, "Federico Chiesa": 27, "Domenico Berardi": 30,
+      "Giacomo Raspadori": 24, "Takefusa Kubo": 23, "Kaoru Mitoma": 27, "Ritsu Dōan": 26,
+      "Daichi Kamada": 28, "Hwang Hee-chan": 28, "Lee Kang-in": 23, "Kim Min-jae": 28,
+      "Mehdi Taremi": 32, "Sardar Azmoun": 30, "Alireza Jahanbakhsh": 31, "Hakim Ziyech": 31,
+      "Youssef En-Nesyri": 27, "Sofiane Boufal": 31, "Yassine Bounou": 33, "Noussair Mazraoui": 27,
+      "Ismaël Bennacer": 27, "Riyad Mahrez": 33, "Islam Slimani": 36, "Yacine Brahimi": 34
+    };
+    return ageMap[name] || 30; // Fallback auf 30 wenn unbekannt
+  };
+
+  return {
+    ...player,
+    nationality: player.nationality || getNationality(player.name, player.clubs),
+    age: player.age || getAge(player.name),
+    currentLeague: player.currentLeague || getLeague(currentClub),
+    currentClub: player.currentClub || currentClub
+  };
+};
+
 // Beispieldaten - Später könntest du diese aus einer API laden
-const PLAYERS_DATA = [
+const PLAYERS_DATA_RAW = [
   {
     id: 1,
     name: "Cristiano Ronaldo",
@@ -1536,6 +1731,9 @@ const PLAYERS_DATA = [
   }
 ];
 
+// Spielerdaten anreichern
+const PLAYERS_DATA = PLAYERS_DATA_RAW.map(enrichPlayerData);
+
 export default function FootballQuiz() {
   // Spieler-Liste beim Start zufällig mischen
   const shuffledPlayers = useMemo(() => {
@@ -1544,11 +1742,17 @@ export default function FootballQuiz() {
   
   const [mode, setMode] = useState(null); // null = Auswahl, 'training' = Training, 'competition' = Wettkampf
   const [currentLevel, setCurrentLevel] = useState(0);
-  const [streak, setStreak] = useState(0); // Wie viele richtige Antworten in Folge
+  const [streak, setStreak] = useState(0); // Wie viele richtige Antworten in Folge (nur Training)
+  const [points, setPoints] = useState(0); // Startpunkte für Wettkampf (0, max 500 möglich)
   const [gameState, setGameState] = useState('playing'); // 'playing', 'finished'
   const [selectedAnswer, setSelectedAnswer] = useState(null);
   const [showStreakReset, setShowStreakReset] = useState(false);
   const [inputValue, setInputValue] = useState(''); // Für Wettkampf-Modus
+  const [showTipsModal, setShowTipsModal] = useState(false); // Tipps-Modal
+  const [revealedTips, setRevealedTips] = useState({}); // Welche Tipps wurden bereits gekauft
+  const [tipsCostThisRound, setTipsCostThisRound] = useState(0); // Kosten für Tipps in dieser Runde
+  const [showAllStations, setShowAllStations] = useState(false); // Alle Stationen anzeigen
+  const [stationsSorted, setStationsSorted] = useState(false); // Stationen sortiert anzeigen
 
   const currentPlayer = shuffledPlayers[currentLevel];
   
@@ -1556,6 +1760,24 @@ export default function FootballQuiz() {
   const shuffledOptions = useMemo(() => {
     return shuffleArray(currentPlayer.options);
   }, [currentLevel]);
+
+  // Stationen für Anzeige vorbereiten - nur neu berechnen wenn sich Spieler oder Einstellungen ändern
+  const stationsToShow = useMemo(() => {
+    let stations = [...currentPlayer.clubs];
+    
+    // Wenn sortiert, alphabetisch sortieren
+    if (stationsSorted) {
+      stations = [...stations].sort();
+    }
+    
+    // Wenn nicht alle Stationen angezeigt werden sollen, nur 4 zufällige nehmen
+    if (!showAllStations) {
+      const shuffled = shuffleArray([...currentPlayer.clubs]);
+      stations = shuffled.slice(0, 4);
+    }
+    
+    return stations;
+  }, [currentLevel, showAllStations, stationsSorted, currentPlayer]);
 
   const handleAnswer = (answer) => {
     if (selectedAnswer) return;
@@ -1607,42 +1829,69 @@ export default function FootballQuiz() {
     setSelectedAnswer(inputValue.trim());
     
     if (isCorrect) {
-      // Richtige Antwort - Streak erhöhen
-      const newStreak = streak + 1;
-      setStreak(newStreak);
+      // Richtige Antwort - 100 Punkte minus Tipp-Kosten dieser Runde
+      const pointsThisRound = Math.max(0, 100 - tipsCostThisRound);
+      const newPoints = points + pointsThisRound;
+      setPoints(newPoints);
       
-      // Bei 5 richtigen Antworten gewonnen!
-      if (newStreak >= 5) {
-        setTimeout(() => {
-          setGameState('finished');
-        }, 1500);
-        return;
-      }
-      
-      // Nächste Frage
+      // Nächste Frage (maximal 5 Durchgänge im Wettkampf)
       setTimeout(() => {
-        if (currentLevel < shuffledPlayers.length - 1) {
+        const maxLevel = 5; // 5 Durchgänge im Wettkampf
+        if (currentLevel < maxLevel - 1) {
           setCurrentLevel(currentLevel + 1);
           setSelectedAnswer(null);
           setInputValue('');
+          setRevealedTips({}); // Tipps zurücksetzen für nächsten Spieler
+          setTipsCostThisRound(0); // Tipp-Kosten zurücksetzen
+          setShowAllStations(false); // Stationen-Anzeige zurücksetzen
+          setStationsSorted(false); // Sortierung zurücksetzen
         } else {
           setGameState('finished');
         }
       }, 1500);
     } else {
-      // Falsche Antwort - Streak zurücksetzen
-      setShowStreakReset(true);
+      // Falsche Antwort - 0 Punkte (nichts addieren)
+      // Nächste Frage (maximal 5 Durchgänge im Wettkampf)
       setTimeout(() => {
-        setStreak(0);
-        setShowStreakReset(false);
-        if (currentLevel < shuffledPlayers.length - 1) {
+        const maxLevel = 5; // 5 Durchgänge im Wettkampf
+        if (currentLevel < maxLevel - 1) {
           setCurrentLevel(currentLevel + 1);
           setSelectedAnswer(null);
           setInputValue('');
+          setRevealedTips({}); // Tipps zurücksetzen für nächsten Spieler
+          setTipsCostThisRound(0); // Tipp-Kosten zurücksetzen
+          setShowAllStations(false); // Stationen-Anzeige zurücksetzen
+          setStationsSorted(false); // Sortierung zurücksetzen
         } else {
           setGameState('finished');
         }
       }, 2000);
+    }
+  };
+
+  // Tipp kaufen
+  const buyTip = (tipType) => {
+    const tipCosts = {
+      age: 15,
+      nationality: 20,
+      allStations: 20,
+      currentClub: 20,
+      sortStations: 20
+    };
+    
+    const cost = tipCosts[tipType];
+    // Tipps kosten keine Punkte direkt, sondern reduzieren die möglichen Punkte dieser Runde
+    if (!revealedTips[tipType]) {
+      setTipsCostThisRound(tipsCostThisRound + cost);
+      setRevealedTips({ ...revealedTips, [tipType]: true });
+      
+      // Spezielle Aktionen für bestimmte Tipps
+      if (tipType === 'allStations') {
+        setShowAllStations(true);
+      }
+      if (tipType === 'sortStations') {
+        setStationsSorted(true);
+      }
     }
   };
 
@@ -1667,7 +1916,14 @@ export default function FootballQuiz() {
             animate={{ opacity: 1, y: 0 }}
             whileHover={{ scale: 1.02 }}
             whileTap={{ scale: 0.98 }}
-            onClick={() => setMode('training')}
+            onClick={() => {
+              setMode('training');
+              setStreak(0);
+              setCurrentLevel(0);
+              setGameState('playing');
+              setSelectedAnswer(null);
+              setShowStreakReset(false);
+            }}
             className="w-full bg-gradient-to-r from-green-500 to-blue-500 p-6 rounded-2xl font-bold text-lg shadow-xl hover:shadow-2xl transition-shadow"
           >
             🎯 Training
@@ -1682,12 +1938,23 @@ export default function FootballQuiz() {
             transition={{ delay: 0.1 }}
             whileHover={{ scale: 1.02 }}
             whileTap={{ scale: 0.98 }}
-            onClick={() => setMode('competition')}
+            onClick={() => {
+              setMode('competition');
+              setPoints(0);
+              setCurrentLevel(0);
+              setGameState('playing');
+              setSelectedAnswer(null);
+              setInputValue('');
+              setRevealedTips({});
+              setTipsCostThisRound(0);
+              setShowAllStations(false);
+              setStationsSorted(false);
+            }}
             className="w-full bg-gradient-to-r from-purple-500 to-pink-500 p-6 rounded-2xl font-bold text-lg shadow-xl hover:shadow-2xl transition-shadow"
           >
             ⚡ Wettkampf
             <p className="text-sm font-normal mt-2 opacity-90">
-              Tippe den Namen ein - bis zu 2 Rechtschreibfehler erlaubt
+              5 Durchgänge - 100 Punkte pro richtige Antwort. Tipps verfügbar!
             </p>
           </motion.button>
         </div>
@@ -1718,11 +1985,38 @@ export default function FootballQuiz() {
 
       {gameState === 'playing' ? (
         <div className="w-full max-w-md">
+          {/* Punkteanzeige für Wettkampf */}
+          {mode === 'competition' && (() => {
+            const maxPossiblePoints = 500 - (currentLevel * 100); // Maximal noch mögliche Punkte
+            const pointsThisRound = Math.max(0, 100 - tipsCostThisRound); // Punkte die in dieser Runde noch möglich sind
+            return (
+              <div className="bg-gradient-to-r from-purple-600 to-pink-600 rounded-2xl p-4 shadow-xl mb-6 border border-purple-500">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-purple-100 text-xs uppercase tracking-widest mb-1">Punkte</p>
+                    <p className="text-3xl font-bold text-white">{points}</p>
+                    <p className="text-purple-200 text-xs mt-1">Durchgang {currentLevel + 1} von 5</p>
+                    {tipsCostThisRound > 0 && (
+                      <p className="text-yellow-300 text-xs mt-1">Diese Runde: {pointsThisRound} Punkte möglich</p>
+                    )}
+                  </div>
+                  <div className="text-right">
+                    <p className="text-purple-100 text-xs uppercase tracking-widest mb-1">Noch möglich</p>
+                    <p className="text-2xl font-bold text-white">{maxPossiblePoints}</p>
+                    <p className="text-purple-200 text-xs mt-1">von 500 max</p>
+                  </div>
+                </div>
+              </div>
+            );
+          })()}
+
           {/* Club-Liste */}
           <div className="bg-slate-800 rounded-2xl p-6 shadow-xl mb-6 border border-slate-700">
-            <p className="text-slate-400 text-sm mb-4 uppercase tracking-widest">Stationen:</p>
+            <p className="text-slate-400 text-sm mb-4 uppercase tracking-widest">
+              {showAllStations ? 'Alle Stationen' : '4 ausgewählte Stationen'}
+            </p>
             <div className="flex flex-wrap gap-2">
-              {currentPlayer.clubs.map((club, index) => (
+              {stationsToShow.map((club, index) => (
                 <motion.span
                   initial={{ opacity: 0, x: -20 }}
                   animate={{ opacity: 1, x: 0 }}
@@ -1735,6 +2029,18 @@ export default function FootballQuiz() {
               ))}
             </div>
           </div>
+
+          {/* Tipps-Button für Wettkampf */}
+          {mode === 'competition' && (
+            <div className="mb-4">
+              <button
+                onClick={() => setShowTipsModal(true)}
+                className="w-full bg-gradient-to-r from-yellow-500 to-orange-500 p-4 rounded-xl font-bold text-lg hover:shadow-lg transition-shadow flex items-center justify-center gap-2"
+              >
+                💡 Tipps
+              </button>
+            </div>
+          )}
 
           {/* Antwort-Optionen - Training Modus */}
           {mode === 'training' && (
@@ -1806,43 +2112,45 @@ export default function FootballQuiz() {
             </form>
           )}
 
-          {/* Fußball-Streak-Anzeige */}
-          <div className="mt-8 flex flex-col items-center gap-3">
-            <p className="text-slate-400 text-xs uppercase tracking-widest mb-2">5 in Folge zum Sieg!</p>
-            <div className="flex gap-3 items-center relative">
-              {[1, 2, 3, 4, 5].map((ballNumber) => (
-                <div key={ballNumber} className="relative w-12 h-12 flex items-center justify-center">
-                  {/* Platzhalter bleibt immer sichtbar */}
-                  <div className="absolute w-8 h-8 rounded-full border-2 border-slate-500 border-dashed"></div>
-                  
-                  {/* Fußball fällt langsam nacheinander */}
-                  {streak >= ballNumber && !showStreakReset ? (
-                    <motion.span
-                      initial={{ scale: 0 }}
-                      animate={{ scale: 1 }}
-                      transition={{ duration: 0.8, delay: 0.3 }}
-                      className="text-4xl relative z-10"
-                    >
-                      ⚽
-                    </motion.span>
-                  ) : showStreakReset && streak >= ballNumber ? (
-                    <motion.span
-                      initial={{ y: 0, opacity: 1 }}
-                      animate={{ y: 200, opacity: 0 }}
-                      transition={{ 
-                        duration: 1.2,
-                        delay: (ballNumber - 1) * 0.15,
-                        ease: "easeIn"
-                      }}
-                      className="text-4xl relative z-10"
-                    >
-                      ⚽
-                    </motion.span>
-                  ) : null}
-                </div>
-              ))}
+          {/* Fußball-Streak-Anzeige - nur im Trainingsmodus */}
+          {mode === 'training' && (
+            <div className="mt-8 flex flex-col items-center gap-3">
+              <p className="text-slate-400 text-xs uppercase tracking-widest mb-2">5 in Folge zum Sieg!</p>
+              <div className="flex gap-3 items-center relative">
+                {[1, 2, 3, 4, 5].map((ballNumber) => (
+                  <div key={ballNumber} className="relative w-12 h-12 flex items-center justify-center">
+                    {/* Platzhalter bleibt immer sichtbar */}
+                    <div className="absolute w-8 h-8 rounded-full border-2 border-slate-500 border-dashed"></div>
+                    
+                    {/* Fußball fällt langsam nacheinander */}
+                    {streak >= ballNumber && !showStreakReset ? (
+                      <motion.span
+                        initial={{ scale: 0 }}
+                        animate={{ scale: 1 }}
+                        transition={{ duration: 0.8, delay: 0.3 }}
+                        className="text-4xl relative z-10"
+                      >
+                        ⚽
+                      </motion.span>
+                    ) : showStreakReset && streak >= ballNumber ? (
+                      <motion.span
+                        initial={{ y: 0, opacity: 1 }}
+                        animate={{ y: 200, opacity: 0 }}
+                        transition={{ 
+                          duration: 1.2,
+                          delay: (ballNumber - 1) * 0.15,
+                          ease: "easeIn"
+                        }}
+                        className="text-4xl relative z-10"
+                      >
+                        ⚽
+                      </motion.span>
+                    ) : null}
+                  </div>
+                ))}
+              </div>
             </div>
-          </div>
+          )}
         </div>
       ) : (
         <motion.div 
@@ -1850,32 +2158,44 @@ export default function FootballQuiz() {
           animate={{ scale: 1, opacity: 1 }}
           className="text-center bg-slate-800 p-10 rounded-3xl shadow-2xl border border-slate-700"
         >
-          {streak >= 5 ? (
-            <>
-              <h2 className="text-4xl font-bold mb-4">🎉 Gewonnen! 🎉</h2>
-              <p className="text-xl mb-6 text-slate-300 text-balance">
-                Du hast 5 richtige Antworten in Folge geschafft!
-              </p>
-              <div className="flex justify-center gap-2 mb-6">
-                {[1, 2, 3, 4, 5].map((i) => (
-                  <motion.span
-                    key={i}
-                    initial={{ scale: 0, rotate: -180 }}
-                    animate={{ scale: 1, rotate: 0 }}
-                    transition={{ delay: i * 0.1 }}
-                    className="text-4xl"
-                  >
-                    ⚽
-                  </motion.span>
-                ))}
-              </div>
-            </>
+          {mode === 'training' ? (
+            streak >= 5 ? (
+              <>
+                <h2 className="text-4xl font-bold mb-4">🎉 Gewonnen! 🎉</h2>
+                <p className="text-xl mb-6 text-slate-300 text-balance">
+                  Du hast 5 richtige Antworten in Folge geschafft!
+                </p>
+                <div className="flex justify-center gap-2 mb-6">
+                  {[1, 2, 3, 4, 5].map((i) => (
+                    <motion.span
+                      key={i}
+                      initial={{ scale: 0, rotate: -180 }}
+                      animate={{ scale: 1, rotate: 0 }}
+                      transition={{ delay: i * 0.1 }}
+                      className="text-4xl"
+                    >
+                      ⚽
+                    </motion.span>
+                  ))}
+                </div>
+              </>
+            ) : (
+              <>
+                <h2 className="text-4xl font-bold mb-4">Spiel beendet! ⚽️</h2>
+                <p className="text-xl mb-6 text-slate-300 text-balance">
+                  Du hattest einen Streak von {streak} richtigen Antworten.
+                </p>
+              </>
+            )
           ) : (
             <>
-          <h2 className="text-4xl font-bold mb-4">Spiel beendet! ⚽️</h2>
-          <p className="text-xl mb-6 text-slate-300 text-balance">
-                Du hattest einen Streak von {streak} richtigen Antworten.
-          </p>
+              <h2 className="text-4xl font-bold mb-4">Wettkampf beendet! ⚽️</h2>
+              <p className="text-xl mb-6 text-slate-300 text-balance">
+                Du hast {points} von 500 möglichen Punkten erreicht!
+              </p>
+              <div className="bg-gradient-to-r from-purple-600 to-pink-600 rounded-xl p-4 mb-6">
+                <p className="text-3xl font-bold text-white text-center">{points} Punkte</p>
+              </div>
             </>
           )}
           <div className="flex gap-4">
@@ -1884,10 +2204,15 @@ export default function FootballQuiz() {
                 setMode(null);
                 setCurrentLevel(0);
                 setStreak(0);
+                setPoints(0);
                 setGameState('playing');
                 setSelectedAnswer(null);
                 setInputValue('');
                 setShowStreakReset(false);
+                setRevealedTips({});
+                setTipsCostThisRound(0);
+                setShowAllStations(false);
+                setStationsSorted(false);
               }}
               className="bg-slate-700 px-6 py-3 rounded-full font-bold hover:shadow-lg transition-shadow"
             >
@@ -1901,6 +2226,153 @@ export default function FootballQuiz() {
           </button>
           </div>
         </motion.div>
+      )}
+
+      {/* Tipps-Modal */}
+      {showTipsModal && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <motion.div
+            initial={{ scale: 0.9, opacity: 0 }}
+            animate={{ scale: 1, opacity: 1 }}
+            className="bg-slate-800 rounded-2xl p-6 max-w-md w-full border border-slate-700 shadow-2xl"
+          >
+            <div className="flex items-center justify-between mb-6">
+              <h3 className="text-2xl font-bold text-white">💡 Tipps</h3>
+              <button
+                onClick={() => setShowTipsModal(false)}
+                className="text-slate-400 hover:text-white text-2xl"
+              >
+                ×
+              </button>
+            </div>
+
+            <div className="space-y-3">
+              {/* Alter */}
+              <div className="bg-slate-700 rounded-xl p-4">
+                <div className="flex items-center justify-between mb-2">
+                  <span className="font-semibold text-white">Alter</span>
+                  {revealedTips.age ? (
+                    <span className="text-green-400 font-bold">{currentPlayer.age} Jahre</span>
+                  ) : (
+                    <button
+                      onClick={() => buyTip('age')}
+                      disabled={tipsCostThisRound + 15 > 100}
+                      className={`px-4 py-2 rounded-lg font-bold text-sm ${
+                        tipsCostThisRound + 15 <= 100
+                          ? 'bg-yellow-500 hover:bg-yellow-600 text-white'
+                          : 'bg-slate-600 text-slate-400 cursor-not-allowed'
+                      }`}
+                    >
+                      15 Punkte
+                    </button>
+                  )}
+                </div>
+              </div>
+
+              {/* Nationalität */}
+              <div className="bg-slate-700 rounded-xl p-4">
+                <div className="flex items-center justify-between mb-2">
+                  <span className="font-semibold text-white">Nationalität</span>
+                  {revealedTips.nationality ? (
+                    <span className="text-green-400 font-bold">{currentPlayer.nationality}</span>
+                  ) : (
+                    <button
+                      onClick={() => buyTip('nationality')}
+                      disabled={tipsCostThisRound + 20 > 100}
+                      className={`px-4 py-2 rounded-lg font-bold text-sm ${
+                        tipsCostThisRound + 20 <= 100
+                          ? 'bg-yellow-500 hover:bg-yellow-600 text-white'
+                          : 'bg-slate-600 text-slate-400 cursor-not-allowed'
+                      }`}
+                    >
+                      20 Punkte
+                    </button>
+                  )}
+                </div>
+              </div>
+
+              {/* Alle Vereinsstationen anzeigen */}
+              <div className="bg-slate-700 rounded-xl p-4">
+                <div className="flex items-center justify-between mb-2">
+                  <span className="font-semibold text-white">Alle Vereinsstationen anzeigen</span>
+                  {revealedTips.allStations ? (
+                    <span className="text-green-400 font-bold">✓ Aktiviert</span>
+                  ) : (
+                    <button
+                      onClick={() => buyTip('allStations')}
+                      disabled={tipsCostThisRound + 20 > 100}
+                      className={`px-4 py-2 rounded-lg font-bold text-sm ${
+                        tipsCostThisRound + 20 <= 100
+                          ? 'bg-yellow-500 hover:bg-yellow-600 text-white'
+                          : 'bg-slate-600 text-slate-400 cursor-not-allowed'
+                      }`}
+                    >
+                      20 Punkte
+                    </button>
+                  )}
+                </div>
+              </div>
+
+              {/* Aktueller Verein */}
+              <div className="bg-slate-700 rounded-xl p-4">
+                <div className="flex items-center justify-between mb-2">
+                  <span className="font-semibold text-white">Aktueller Verein</span>
+                  {revealedTips.currentClub ? (
+                    <span className="text-green-400 font-bold">{currentPlayer.currentClub}</span>
+                  ) : (
+                    <button
+                      onClick={() => buyTip('currentClub')}
+                      disabled={tipsCostThisRound + 20 > 100}
+                      className={`px-4 py-2 rounded-lg font-bold text-sm ${
+                        tipsCostThisRound + 20 <= 100
+                          ? 'bg-yellow-500 hover:bg-yellow-600 text-white'
+                          : 'bg-slate-600 text-slate-400 cursor-not-allowed'
+                      }`}
+                    >
+                      20 Punkte
+                    </button>
+                  )}
+                </div>
+              </div>
+
+              {/* Vereinsstationen sortieren */}
+              <div className="bg-slate-700 rounded-xl p-4">
+                <div className="flex items-center justify-between mb-2">
+                  <span className="font-semibold text-white">Vereinsstationen sortieren</span>
+                  {revealedTips.sortStations ? (
+                    <span className="text-green-400 font-bold">✓ Sortiert</span>
+                  ) : (
+                    <button
+                      onClick={() => buyTip('sortStations')}
+                      disabled={tipsCostThisRound + 20 > 100}
+                      className={`px-4 py-2 rounded-lg font-bold text-sm ${
+                        tipsCostThisRound + 20 <= 100
+                          ? 'bg-yellow-500 hover:bg-yellow-600 text-white'
+                          : 'bg-slate-600 text-slate-400 cursor-not-allowed'
+                      }`}
+                    >
+                      20 Punkte
+                    </button>
+                  )}
+                </div>
+              </div>
+            </div>
+
+            <div className="mt-6 text-center space-y-2">
+              <p className="text-slate-400 text-sm">
+                Gesamtpunkte: <span className="text-white font-bold">{points}</span>
+              </p>
+              <p className="text-yellow-300 text-sm">
+                Diese Runde möglich: <span className="font-bold">{Math.max(0, 100 - tipsCostThisRound)}</span> von 100 Punkten
+              </p>
+              {tipsCostThisRound > 0 && (
+                <p className="text-red-300 text-xs">
+                  Tipp-Kosten diese Runde: {tipsCostThisRound} Punkte
+                </p>
+              )}
+            </div>
+          </motion.div>
+        </div>
       )}
     </div>
   );
