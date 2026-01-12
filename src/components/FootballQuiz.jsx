@@ -1,11 +1,34 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { motion } from 'framer-motion';
+import MultiplayerCreate from './MultiplayerCreate';
+import MultiplayerJoin from './MultiplayerJoin';
+import MultiplayerResult from './MultiplayerResult';
+import { submitCreatorResult, submitOpponentResult, getMatch } from '../services/matchService';
+import { useMatch } from '../contexts/MatchContext';
 
 // Funktion zum zufälligen Mischen eines Arrays
 const shuffleArray = (array) => {
   const shuffled = [...array];
   for (let i = shuffled.length - 1; i > 0; i--) {
     const j = Math.floor(Math.random() * (i + 1));
+    [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
+  }
+  return shuffled;
+};
+
+// Seed-basierte Shuffle-Funktion für Multiplayer (deterministisch)
+const seededShuffleArray = (array, seed) => {
+  const shuffled = [...array];
+  let random = seed;
+  
+  // Einfacher Pseudo-Random-Generator basierend auf Seed
+  const seededRandom = () => {
+    random = (random * 9301 + 49297) % 233280;
+    return random / 233280;
+  };
+  
+  for (let i = shuffled.length - 1; i > 0; i--) {
+    const j = Math.floor(seededRandom() * (i + 1));
     [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
   }
   return shuffled;
@@ -1734,13 +1757,93 @@ const PLAYERS_DATA_RAW = [
 // Spielerdaten anreichern
 const PLAYERS_DATA = PLAYERS_DATA_RAW.map(enrichPlayerData);
 
-export default function FootballQuiz() {
-  // Spieler-Liste beim Start zufällig mischen
-  const shuffledPlayers = useMemo(() => {
-    return shuffleArray(PLAYERS_DATA);
-  }, []);
+export default function FootballQuiz({ mode: initialMode, navigate, multiplayerState: initialMultiplayerState, urlMatchId: urlMatchIdProp }) {
+  // Context für Match-State (bleibt über Route-Wechsel erhalten)
+  const { currentMatch, setCurrentMatch, isCreator, setIsCreator, matchState, setMatchState } = useMatch();
+
+  // Prüfe URL für Match-Link (z.B. /match/abc123)
+  const urlMatchId = useMemo(() => {
+    if (urlMatchIdProp) return urlMatchIdProp;
+    const path = window.location.pathname;
+    const match = path.match(/\/match\/([^/]+)/);
+    return match ? match[1] : null;
+  }, [urlMatchIdProp]);
+
+  // Multiplayer State (lokal für UI-Zustände)
+  const [multiplayerState, setMultiplayerState] = useState(initialMultiplayerState || null); // null, 'create', 'join', 'playing', 'result'
+  const [roundResults, setRoundResults] = useState([]); // Für Multiplayer: Speichert Ergebnisse jeder Runde
+  const [isLoadingMatch, setIsLoadingMatch] = useState(false); // Lädt Match-Daten
+  const [mode, setMode] = useState(initialMode || null); // null = Auswahl, 'training' = Training, 'competition' = Wettkampf, 'multiplayer' = Multiplayer
   
-  const [mode, setMode] = useState(null); // null = Auswahl, 'training' = Training, 'competition' = Wettkampf
+  // Wenn Context-Match vorhanden ist und URL Match-ID passt, verwende Context-State
+  useEffect(() => {
+    if (currentMatch && urlMatchId && currentMatch.id === urlMatchId && !mode) {
+      setMode('multiplayer');
+      setMultiplayerState('playing');
+    }
+  }, [currentMatch, urlMatchId, mode]);
+  
+  // Wenn URL Match-ID enthält, automatisch Match laden oder Join-Seite zeigen
+  useEffect(() => {
+    // Nur wenn wir wirklich auf einer Match-URL sind UND kein Match geladen ist UND nicht bereits im Multiplayer-Modus sind
+    // UND kein initialer Modus gesetzt ist (d.h. wir kommen direkt von der URL)
+    // UND wir nicht bereits spielen (mode ist nicht 'multiplayer' UND multiplayerState ist nicht 'playing')
+    // UND wir nicht bereits Creator sind UND currentMatch ist nicht gesetzt
+    // WICHTIG: Wenn currentMatch bereits gesetzt ist ODER isCreator true ist, bedeutet das, dass wir gerade ein Match erstellt haben
+    // Nur wenn wir wirklich auf einer Match-URL sind UND kein Match im Context vorhanden ist
+    // UND nicht bereits im Multiplayer-Modus sind
+    if (urlMatchId && !currentMatch && multiplayerState === null && mode !== 'multiplayer' && initialMode === null) {
+      // Prüfe ob wir bereits ein Match haben (z.B. wenn Creator gerade spielt)
+      // Wenn nicht, zeige Join-Seite
+      const checkMatch = async () => {
+        try {
+          const match = await getMatch(urlMatchId);
+          
+          if (match.creator_result && match.opponent_result) {
+            // Beide haben gespielt - zeige Ergebnis
+            setCurrentMatch(match);
+            setIsCreator(false);
+            setMode('multiplayer');
+            setMultiplayerState('result');
+          } else if (match.creator_result && !match.opponent_result) {
+            // Creator hat gespielt, Opponent noch nicht
+            // Prüfe ob wir der Creator sind (durch Context-State)
+            if (isCreator && currentMatch?.id === match.id) {
+              // Wir sind der Creator - zeige Link/Wartebildschirm
+              setCurrentMatch(match);
+              setMode('multiplayer');
+              setGameState('finished'); // 'finished' damit der Link angezeigt wird
+              setPoints(match.creator_result?.points || 0);
+            } else {
+              // Wir sind der Opponent ODER noch nicht beigetreten - zeige Join-Seite
+              setMultiplayerState('join');
+            }
+          } else if (!match.creator_result && match.opponent_result) {
+            // Opponent hat gespielt, Creator noch nicht - sollte nicht passieren, aber zeige Join
+            setMultiplayerState('join');
+          } else {
+            // Match existiert, aber noch niemand hat gespielt - zeige Join-Seite
+            setMultiplayerState('join');
+          }
+        } catch (err) {
+          // Match nicht gefunden - zeige Join-Seite
+          setMultiplayerState('join');
+        }
+      };
+      checkMatch();
+    }
+  }, [urlMatchId, currentMatch, multiplayerState, mode, initialMode, isCreator]);
+  
+  // Spieler-Liste beim Start zufällig mischen (oder seed-basiert für Multiplayer)
+  const shuffledPlayers = useMemo(() => {
+    if (currentMatch?.seed) {
+      // Multiplayer: Verwende seed-basierte Shuffle für gleiche Spieler
+      const seeded = seededShuffleArray(PLAYERS_DATA, currentMatch.seed);
+      return seeded.slice(0, 5);
+    }
+    // Solo: Zufällige Shuffle
+    return shuffleArray(PLAYERS_DATA).slice(0, 5);
+  }, [currentMatch?.seed]);
   const [currentLevel, setCurrentLevel] = useState(0);
   const [streak, setStreak] = useState(0); // Wie viele richtige Antworten in Folge (nur Training)
   const [points, setPoints] = useState(0); // Startpunkte für Wettkampf (0, max 500 möglich)
@@ -1821,6 +1924,41 @@ export default function FootballQuiz() {
     }
   };
 
+  // Speichere Multiplayer-Ergebnis
+  const saveMultiplayerResult = async () => {
+    if (!currentMatch) return;
+
+    const result = {
+      points: points,
+      rounds: roundResults
+    };
+
+    try {
+      if (isCreator) {
+        await submitCreatorResult(currentMatch.id, result);
+      } else {
+        await submitOpponentResult(currentMatch.id, result);
+      }
+
+      // Aktualisiere Match-Daten
+      const updatedMatch = await getMatch(currentMatch.id);
+      setCurrentMatch(updatedMatch);
+
+      // Prüfe ob beide Spieler fertig sind
+      if (updatedMatch.creator_result && updatedMatch.opponent_result) {
+        // Beide fertig - zeige Ergebnis
+        setMultiplayerState('result');
+      } else {
+        // Nur ein Spieler ist fertig
+        // gameState bleibt 'finished', damit der Link angezeigt wird (für Creator)
+        // oder Wartebildschirm (für Opponent)
+      }
+    } catch (error) {
+      console.error('Error saving result:', error);
+      alert('Fehler beim Speichern des Ergebnisses. Bitte versuche es erneut.');
+    }
+  };
+
   const handleCompetitionSubmit = (e) => {
     e.preventDefault();
     if (!inputValue.trim() || selectedAnswer) return;
@@ -1833,6 +1971,16 @@ export default function FootballQuiz() {
       const pointsThisRound = Math.max(0, 100 - tipsCostThisRound);
       const newPoints = points + pointsThisRound;
       setPoints(newPoints);
+      
+      // Für Multiplayer: Runden-Ergebnis speichern
+      if (mode === 'multiplayer') {
+        setRoundResults([...roundResults, { 
+          points: pointsThisRound, 
+          tipsUsed: tipsCostThisRound,
+          playerName: currentPlayer.name,
+          playerId: currentPlayer.id
+        }]);
+      }
       
       // Nächste Frage (maximal 5 Durchgänge im Wettkampf)
       setTimeout(() => {
@@ -1847,10 +1995,24 @@ export default function FootballQuiz() {
           setStationsSorted(false); // Sortierung zurücksetzen
         } else {
           setGameState('finished');
+          // Multiplayer: Ergebnis speichern
+          if (mode === 'multiplayer') {
+            saveMultiplayerResult();
+          }
         }
       }, 1500);
     } else {
       // Falsche Antwort - 0 Punkte (nichts addieren)
+      // Für Multiplayer: Runden-Ergebnis speichern
+      if (mode === 'multiplayer') {
+        setRoundResults([...roundResults, { 
+          points: 0, 
+          tipsUsed: tipsCostThisRound,
+          playerName: currentPlayer.name,
+          playerId: currentPlayer.id
+        }]);
+      }
+      
       // Nächste Frage (maximal 5 Durchgänge im Wettkampf)
       setTimeout(() => {
         const maxLevel = 5; // 5 Durchgänge im Wettkampf
@@ -1864,6 +2026,10 @@ export default function FootballQuiz() {
           setStationsSorted(false); // Sortierung zurücksetzen
         } else {
           setGameState('finished');
+          // Multiplayer: Ergebnis speichern
+          if (mode === 'multiplayer') {
+            saveMultiplayerResult();
+          }
         }
       }, 2000);
     }
@@ -1895,6 +2061,110 @@ export default function FootballQuiz() {
     }
   };
 
+  // Loading State für Match-Laden
+  if (isLoadingMatch) {
+    return (
+      <div className="min-h-screen bg-slate-900 text-white flex flex-col items-center justify-center p-4 font-sans">
+        <motion.div
+          initial={{ scale: 0.9, opacity: 0 }}
+          animate={{ scale: 1, opacity: 1 }}
+          className="text-center"
+        >
+          <div className="text-4xl mb-4">⚽</div>
+          <p className="text-xl">Lade Match...</p>
+        </motion.div>
+      </div>
+    );
+  }
+
+  // Multiplayer: Match erstellen (muss VOR mode === null Prüfung kommen)
+  if (multiplayerState === 'create') {
+    return (
+      <MultiplayerCreate
+        onMatchCreated={(match) => {
+          // Setze Context-State (bleibt über Navigation erhalten)
+          setCurrentMatch(match);
+          setIsCreator(true);
+          setMatchState('playing');
+          
+          // Setze lokalen State
+          setMultiplayerState('playing');
+          setMode('multiplayer');
+          setPoints(0);
+          setCurrentLevel(0);
+          setGameState('playing');
+          setRoundResults([]);
+          setInputValue('');
+          setRevealedTips({});
+          setTipsCostThisRound(0);
+          setShowAllStations(false);
+          setStationsSorted(false);
+          
+          // Navigation zur Match-URL
+          if (navigate) {
+            navigate(`/match/${match.id}`);
+          }
+        }}
+        onCancel={() => setMultiplayerState(null)}
+      />
+    );
+  }
+
+  // Multiplayer: Match beitreten
+  if (multiplayerState === 'join') {
+    return (
+      <MultiplayerJoin
+        initialMatchId={urlMatchId}
+        onMatchJoined={(match) => {
+          setCurrentMatch(match);
+          setIsCreator(false);
+          setMultiplayerState('playing');
+          setMode('multiplayer');
+          setPoints(0);
+          setCurrentLevel(0);
+          setGameState('playing');
+          setRoundResults([]);
+          setInputValue('');
+          setRevealedTips({});
+          setTipsCostThisRound(0);
+          setShowAllStations(false);
+          setStationsSorted(false);
+          // Navigate to match URL
+          if (navigate) {
+            navigate(`/match/${match.id}`);
+          }
+        }}
+        onCancel={() => {
+          setMultiplayerState(null);
+          if (navigate) navigate('/');
+        }}
+      />
+    );
+  }
+
+  // Multiplayer: Ergebnis anzeigen
+  if (multiplayerState === 'result') {
+    return (
+      <MultiplayerResult
+        match={currentMatch}
+        onPlayAgain={() => {
+          setMultiplayerState(null);
+          setCurrentMatch(null);
+          setMode(null);
+          if (navigate) navigate('/');
+        }}
+        onNewMatch={() => {
+          setMultiplayerState('create');
+          setCurrentMatch(null);
+          if (navigate) navigate('/multiplayer/create');
+        }}
+      />
+    );
+  }
+
+  // Debug: Log current state
+  console.log('FootballQuiz render:', { mode, multiplayerState, gameState, currentLevel, urlMatchId });
+
   // Modus-Auswahlbildschirm
   if (mode === null) {
   return (
@@ -1917,12 +2187,16 @@ export default function FootballQuiz() {
             whileHover={{ scale: 1.02 }}
             whileTap={{ scale: 0.98 }}
             onClick={() => {
-              setMode('training');
-              setStreak(0);
-              setCurrentLevel(0);
-              setGameState('playing');
-              setSelectedAnswer(null);
-              setShowStreakReset(false);
+              if (navigate) {
+                navigate('/training');
+              } else {
+                setMode('training');
+                setStreak(0);
+                setCurrentLevel(0);
+                setGameState('playing');
+                setSelectedAnswer(null);
+                setShowStreakReset(false);
+              }
             }}
             className="w-full bg-gradient-to-r from-green-500 to-blue-500 p-6 rounded-2xl font-bold text-lg shadow-xl hover:shadow-2xl transition-shadow"
           >
@@ -1939,22 +2213,65 @@ export default function FootballQuiz() {
             whileHover={{ scale: 1.02 }}
             whileTap={{ scale: 0.98 }}
             onClick={() => {
-              setMode('competition');
-              setPoints(0);
-              setCurrentLevel(0);
-              setGameState('playing');
-              setSelectedAnswer(null);
-              setInputValue('');
-              setRevealedTips({});
-              setTipsCostThisRound(0);
-              setShowAllStations(false);
-              setStationsSorted(false);
+              if (navigate) {
+                navigate('/competition');
+              } else {
+                setMode('competition');
+                setPoints(0);
+                setCurrentLevel(0);
+                setGameState('playing');
+                setSelectedAnswer(null);
+                setInputValue('');
+                setRevealedTips({});
+                setTipsCostThisRound(0);
+                setShowAllStations(false);
+                setStationsSorted(false);
+              }
             }}
             className="w-full bg-gradient-to-r from-purple-500 to-pink-500 p-6 rounded-2xl font-bold text-lg shadow-xl hover:shadow-2xl transition-shadow"
           >
             ⚡ Wettkampf
             <p className="text-sm font-normal mt-2 opacity-90">
               5 Durchgänge - 100 Punkte pro richtige Antwort. Tipps verfügbar!
+            </p>
+          </motion.button>
+
+          <motion.button
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.2 }}
+            whileHover={{ scale: 1.02 }}
+            whileTap={{ scale: 0.98 }}
+            onClick={() => {
+              console.log('Match erstellen geklickt');
+              setMultiplayerState('create');
+            }}
+            className="w-full bg-gradient-to-r from-orange-500 to-red-500 p-6 rounded-2xl font-bold text-lg shadow-xl hover:shadow-2xl transition-shadow"
+          >
+            👥 Match erstellen
+            <p className="text-sm font-normal mt-2 opacity-90">
+              Erstelle ein neues Match und lade einen Freund ein
+            </p>
+          </motion.button>
+
+          <motion.button
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.3 }}
+            whileHover={{ scale: 1.02 }}
+            whileTap={{ scale: 0.98 }}
+            onClick={() => {
+              if (navigate) {
+                navigate('/multiplayer/join');
+              } else {
+                setMultiplayerState('join');
+              }
+            }}
+            className="w-full bg-gradient-to-r from-blue-500 to-cyan-500 p-6 rounded-2xl font-bold text-lg shadow-xl hover:shadow-2xl transition-shadow"
+          >
+            🔗 Match beitreten
+            <p className="text-sm font-normal mt-2 opacity-90">
+              Tritt einem bestehenden Match mit einer Match-ID bei
             </p>
           </motion.button>
         </div>
@@ -1978,15 +2295,15 @@ export default function FootballQuiz() {
         {/* Modus-Anzeige */}
         <div className="mt-4">
           <span className="text-xs uppercase tracking-widest text-slate-400">
-            {mode === 'training' ? '🎯 Training' : '⚡ Wettkampf'}
+            {mode === 'training' ? '🎯 Training' : mode === 'multiplayer' ? '👥 Multiplayer' : '⚡ Wettkampf'}
           </span>
         </div>
       </div>
 
       {gameState === 'playing' ? (
         <div className="w-full max-w-md">
-          {/* Punkteanzeige für Wettkampf */}
-          {mode === 'competition' && (() => {
+          {/* Punkteanzeige für Wettkampf und Multiplayer */}
+          {(mode === 'competition' || mode === 'multiplayer') && (() => {
             const maxPossiblePoints = 500 - (currentLevel * 100); // Maximal noch mögliche Punkte
             const pointsThisRound = Math.max(0, 100 - tipsCostThisRound); // Punkte die in dieser Runde noch möglich sind
             return (
@@ -2030,8 +2347,8 @@ export default function FootballQuiz() {
             </div>
           </div>
 
-          {/* Tipps-Button für Wettkampf */}
-          {mode === 'competition' && (
+          {/* Tipps-Button für Wettkampf und Multiplayer */}
+          {(mode === 'competition' || mode === 'multiplayer') && (
             <div className="mb-4">
               <button
                 onClick={() => setShowTipsModal(true)}
@@ -2071,8 +2388,8 @@ export default function FootballQuiz() {
           </div>
           )}
 
-          {/* Input-Feld - Wettkampf Modus */}
-          {mode === 'competition' && (
+          {/* Input-Feld - Wettkampf und Multiplayer Modus */}
+          {(mode === 'competition' || mode === 'multiplayer') && (
             <form onSubmit={handleCompetitionSubmit} className="w-full">
               <div className="relative">
                 <input
@@ -2187,6 +2504,73 @@ export default function FootballQuiz() {
                 </p>
               </>
             )
+          ) : mode === 'multiplayer' && gameState === 'finished' && isCreator && currentMatch ? (
+            <>
+              <h2 className="text-4xl font-bold mb-4">🎉 Spiel beendet!</h2>
+              <p className="text-xl mb-6 text-slate-300 text-balance">
+                Du hast {points} Punkte erreicht!
+              </p>
+              <div className="bg-gradient-to-r from-purple-600 to-pink-600 rounded-xl p-4 mb-6">
+                <p className="text-3xl font-bold text-white text-center">{points} Punkte</p>
+              </div>
+              
+              {/* Match-Link zum Teilen */}
+              <div className="bg-slate-700 rounded-xl p-6 mb-6">
+                <p className="text-slate-300 text-sm mb-3 text-center">Teile diesen Link mit deinem Freund:</p>
+                <div className="bg-slate-900 rounded-lg p-3 mb-3 border border-slate-600">
+                  <p className="text-white font-mono text-sm break-all">
+                    {window.location.origin}/match/{currentMatch.id}
+                  </p>
+                </div>
+                <button
+                  onClick={() => {
+                    const link = `${window.location.origin}/match/${currentMatch.id}`;
+                    navigator.clipboard.writeText(link);
+                    alert('Link kopiert!');
+                  }}
+                  className="w-full bg-gradient-to-r from-purple-500 to-pink-500 px-6 py-3 rounded-xl font-bold hover:shadow-lg transition-shadow"
+                >
+                  📋 Link kopieren
+                </button>
+              </div>
+              
+              <button
+                onClick={async () => {
+                  // Prüfe ob Gegner fertig ist
+                  const updatedMatch = await getMatch(currentMatch.id);
+                  if (updatedMatch.creator_result && updatedMatch.opponent_result) {
+                    setCurrentMatch(updatedMatch);
+                    setMultiplayerState('result');
+                  }
+                }}
+                className="bg-gradient-to-r from-green-500 to-blue-500 px-6 py-3 rounded-xl font-bold hover:shadow-lg transition-shadow"
+              >
+                Ergebnis prüfen
+              </button>
+            </>
+          ) : mode === 'multiplayer' && gameState === 'waiting' ? (
+            <>
+              <h2 className="text-4xl font-bold mb-4">⏳ Warte auf Gegner</h2>
+              <p className="text-xl mb-6 text-slate-300 text-balance">
+                Du hast {points} Punkte erreicht!
+              </p>
+              <p className="text-lg mb-4 text-slate-400">
+                Warte darauf, dass dein Gegner fertig spielt...
+              </p>
+              <button
+                onClick={async () => {
+                  // Prüfe ob Gegner fertig ist
+                  const updatedMatch = await getMatch(currentMatch.id);
+                  if (updatedMatch.creator_result && updatedMatch.opponent_result) {
+                    setCurrentMatch(updatedMatch);
+                    setMultiplayerState('result');
+                  }
+                }}
+                className="bg-gradient-to-r from-purple-500 to-pink-500 px-6 py-3 rounded-xl font-bold hover:shadow-lg transition-shadow"
+              >
+                Ergebnis prüfen
+              </button>
+            </>
           ) : (
             <>
               <h2 className="text-4xl font-bold mb-4">Wettkampf beendet! ⚽️</h2>
@@ -2201,18 +2585,22 @@ export default function FootballQuiz() {
           <div className="flex gap-4">
             <button 
               onClick={() => {
-                setMode(null);
-                setCurrentLevel(0);
-                setStreak(0);
-                setPoints(0);
-                setGameState('playing');
-                setSelectedAnswer(null);
-                setInputValue('');
-                setShowStreakReset(false);
-                setRevealedTips({});
-                setTipsCostThisRound(0);
-                setShowAllStations(false);
-                setStationsSorted(false);
+                if (navigate) {
+                  navigate('/');
+                } else {
+                  setMode(null);
+                  setCurrentLevel(0);
+                  setStreak(0);
+                  setPoints(0);
+                  setGameState('playing');
+                  setSelectedAnswer(null);
+                  setInputValue('');
+                  setShowStreakReset(false);
+                  setRevealedTips({});
+                  setTipsCostThisRound(0);
+                  setShowAllStations(false);
+                  setStationsSorted(false);
+                }
               }}
               className="bg-slate-700 px-6 py-3 rounded-full font-bold hover:shadow-lg transition-shadow"
             >
