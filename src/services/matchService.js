@@ -1,7 +1,16 @@
 import { supabase } from '../lib/supabase'
 
+// Prüfe ob Supabase Client verfügbar ist
+if (!supabase) {
+  console.error('❌ Supabase Client nicht verfügbar. Bitte setze die Umgebungsvariablen.');
+}
+
 // Erstelle ein neues Match
 export async function createMatch(creatorName) {
+  if (!supabase) {
+    throw new Error('Supabase Client nicht verfügbar. Bitte setze die Umgebungsvariablen VITE_SUPABASE_URL und VITE_SUPABASE_ANON_KEY.');
+  }
+  
   // Generiere einen einfachen Seed aus Timestamp
   const seed = Date.now()
   
@@ -30,6 +39,10 @@ export async function createMatch(creatorName) {
 
 // Hole Match-Daten
 export async function getMatch(matchId) {
+  if (!supabase) {
+    throw new Error('Supabase Client nicht verfügbar. Bitte setze die Umgebungsvariablen VITE_SUPABASE_URL und VITE_SUPABASE_ANON_KEY.');
+  }
+  
   const { data, error } = await supabase
     .from('matches')
     .select('*')
@@ -46,6 +59,10 @@ export async function getMatch(matchId) {
 
 // Trete einem Match bei
 export async function joinMatch(matchId, opponentName) {
+  if (!supabase) {
+    throw new Error('Supabase Client nicht verfügbar. Bitte setze die Umgebungsvariablen VITE_SUPABASE_URL und VITE_SUPABASE_ANON_KEY.');
+  }
+  
   const { data, error } = await supabase
     .from('matches')
     .update({
@@ -66,6 +83,10 @@ export async function joinMatch(matchId, opponentName) {
 
 // Speichere Creator-Ergebnis
 export async function submitCreatorResult(matchId, result) {
+  if (!supabase) {
+    throw new Error('Supabase Client nicht verfügbar. Bitte setze die Umgebungsvariablen VITE_SUPABASE_URL und VITE_SUPABASE_ANON_KEY.');
+  }
+  
   const { data, error } = await supabase
     .from('matches')
     .update({
@@ -86,6 +107,10 @@ export async function submitCreatorResult(matchId, result) {
 
 // Speichere Opponent-Ergebnis
 export async function submitOpponentResult(matchId, result) {
+  if (!supabase) {
+    throw new Error('Supabase Client nicht verfügbar. Bitte setze die Umgebungsvariablen VITE_SUPABASE_URL und VITE_SUPABASE_ANON_KEY.');
+  }
+  
   const { data, error } = await supabase
     .from('matches')
     .update({

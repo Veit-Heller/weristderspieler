@@ -62,21 +62,6 @@ export default function StartPage() {
             Erstelle ein neues Match und lade einen Freund ein
           </p>
         </motion.button>
-
-        <motion.button
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.3 }}
-          whileHover={{ scale: 1.02 }}
-          whileTap={{ scale: 0.98 }}
-          onClick={() => navigate('/multiplayer/join')}
-          className="w-full bg-gradient-to-r from-blue-500 to-cyan-500 p-6 rounded-2xl font-bold text-lg shadow-xl hover:shadow-2xl transition-shadow"
-        >
-          🔗 Match beitreten
-          <p className="text-sm font-normal mt-2 opacity-90">
-            Tritt einem bestehenden Match mit einer Match-ID bei
-          </p>
-        </motion.button>
       </div>
     </div>
   );
