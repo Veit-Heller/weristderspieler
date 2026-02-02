@@ -55,7 +55,7 @@ export default function MultiplayerCreate({ onMatchCreated, onCancel }) {
               onChange={(e) => setPlayerName(e.target.value)}
               placeholder="z.B. Max"
               className="w-full p-4 rounded-xl border-2 border-slate-700 bg-slate-900 text-white placeholder-slate-500 focus:outline-none focus:border-purple-500 transition-colors"
-              onKeyPress={(e) => e.key === 'Enter' && handleCreate()}
+              onKeyDown={(e) => e.key === 'Enter' && handleCreate()}
               autoFocus
             />
           </div>
